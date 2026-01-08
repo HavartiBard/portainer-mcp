@@ -4,12 +4,14 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"time"
 
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
 	"github.com/portainer/portainer-mcp/pkg/portainer/client"
 	"github.com/portainer/portainer-mcp/pkg/portainer/models"
 	"github.com/portainer/portainer-mcp/pkg/toolgen"
+	"github.com/rs/zerolog"
 )
 
 const (
@@ -185,6 +187,40 @@ func NewPortainerMCPServer(serverURL, token, toolsPath string, options ...Server
 // This is a blocking call that will run until the connection is closed.
 func (s *PortainerMCPServer) Start() error {
 	return server.ServeStdio(s.srv)
+}
+
+// StartHTTP starts the MCP server with HTTP/SSE transport.
+// This allows remote clients to connect via HTTP instead of stdio.
+func (s *PortainerMCPServer) StartHTTP(port int, endpoint string) error {
+	addr := fmt.Sprintf(":%d", port)
+
+	// Create a zerolog-compatible logger for the HTTP server
+	logger := zerolog.New(zerolog.NewConsoleWriter()).With().Timestamp().Logger()
+
+	httpServer := server.NewStreamableHTTPServer(
+		s.srv,
+		server.WithEndpointPath(endpoint),
+		server.WithHeartbeatInterval(30*time.Second),
+	)
+
+	log.Printf("Starting HTTP/SSE server on %s%s", addr, endpoint)
+
+	mux := http.NewServeMux()
+	mux.Handle(endpoint, httpServer)
+	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{"status":"ok"}`))
+	})
+
+	srv := &http.Server{
+		Addr:    addr,
+		Handler: mux,
+	}
+
+	logger.Info().Str("addr", addr).Str("endpoint", endpoint).Msg("HTTP/SSE server started")
+
+	return srv.ListenAndServe()
 }
 
 // addToolIfExists adds a tool to the server if it exists in the tools map

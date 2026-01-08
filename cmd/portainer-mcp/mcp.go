@@ -28,6 +28,9 @@ func main() {
 	toolsFlag := flag.String("tools", "", "The path to the tools YAML file")
 	readOnlyFlag := flag.Bool("read-only", false, "Run in read-only mode")
 	disableVersionCheckFlag := flag.Bool("disable-version-check", false, "Disable Portainer server version check")
+	transportFlag := flag.String("transport", "stdio", "Transport type: stdio, sse, or streamable-http")
+	portFlag := flag.Int("port", 6972, "Port to listen on (only used with sse or streamable-http transport)")
+	endpointFlag := flag.String("endpoint", "/mcp", "HTTP endpoint path (only used with sse or streamable-http transport)")
 
 	flag.Parse()
 
@@ -58,6 +61,9 @@ func main() {
 		Str("tools-path", toolsPath).
 		Bool("read-only", *readOnlyFlag).
 		Bool("disable-version-check", *disableVersionCheckFlag).
+		Str("transport", *transportFlag).
+		Int("port", *portFlag).
+		Str("endpoint", *endpointFlag).
 		Msg("starting MCP server")
 
 	server, err := mcp.NewPortainerMCPServer(*serverFlag, *tokenFlag, toolsPath, mcp.WithReadOnly(*readOnlyFlag), mcp.WithDisableVersionCheck(*disableVersionCheckFlag))
@@ -76,7 +82,15 @@ func main() {
 	server.AddDockerProxyFeatures()
 	server.AddKubernetesProxyFeatures()
 
-	err = server.Start()
+	switch *transportFlag {
+	case "stdio":
+		err = server.Start()
+	case "sse", "streamable-http":
+		err = server.StartHTTP(*portFlag, *endpointFlag)
+	default:
+		log.Fatal().Str("transport", *transportFlag).Msg("invalid transport type, must be: stdio, sse, or streamable-http")
+	}
+
 	if err != nil {
 		log.Fatal().Err(err).Msg("failed to start server")
 	}
